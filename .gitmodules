@@ -1,3 +1,4 @@
 [submodule "external/irkit"]
 	path = external/irkit
 	url = git@github.com:elshize/irkit.git
+	branch = dev

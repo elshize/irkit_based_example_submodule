@@ -73,8 +73,8 @@ int main(int argc, char** argv)
 {
     assert(argc == 2);
     irk::fs::path index_dir(argv[1]);
-    std::ifstream term_in(irk::index::term_map_path(index_dir));
-    std::ifstream title_in(irk::index::title_map_path(index_dir));
+    std::ifstream term_in(irk::index::term_map_path(index_dir).c_str());
+    std::ifstream title_in(irk::index::title_map_path(index_dir).c_str());
     inverted_index_inmemory_data_source data(index_dir);
     // Alternatively, you can use:
     // irk::v2::inverted_index_mapped_data_source data(index_dir);

@@ -6,6 +6,7 @@
 #include <irkit/index/posting_list.hpp>
 #include <irkit/io.hpp>
 #include <irkit/memoryview.hpp>
+#include <irkit/index/source.hpp>
 
 int main(int argc, char** argv)
 {
@@ -13,8 +14,8 @@ int main(int argc, char** argv)
     irk::fs::path index_dir(argv[1]);
     std::ifstream term_in(irk::index::term_map_path(index_dir).c_str());
     std::ifstream title_in(irk::index::title_map_path(index_dir).c_str());
-    irk::v2::inverted_index_mapped_data_source data(index_dir);
-    irk::v2::inverted_index_view index_view(&data, irk::varbyte_codec<long>{},
+    irk::inverted_index_mapped_data_source data(index_dir);
+    irk::inverted_index_view index_view(&data, irk::varbyte_codec<long>{},
                                             irk::varbyte_codec<long>{},
                                             irk::varbyte_codec<long>{});
 

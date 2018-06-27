@@ -9,9 +9,13 @@ target_link_libraries(app irkit)
 target_compile_features(app PRIVATE cxx_std_17)
 
 add_executable(simple_benchmark src/simple_benchmark.cpp)
-target_link_libraries(simple_benchmark irkit rax GSL)
+target_link_libraries(simple_benchmark irkit rax GSL nlohmann_json ranges type_safe debug_assert)
 target_compile_features(simple_benchmark PRIVATE cxx_std_17)
 
 add_executable(scoring src/scoring.cpp)
-target_link_libraries(scoring irkit rax GSL)
+target_link_libraries(scoring irkit rax GSL nlohmann_json ranges type_safe debug_assert)
 target_compile_features(scoring PRIVATE cxx_std_17)
+
+add_executable(taat src/taat.cpp)
+target_link_libraries(taat irkit rax GSL nlohmann_json ranges type_safe debug_assert)
+target_compile_features(taat PRIVATE cxx_std_17)

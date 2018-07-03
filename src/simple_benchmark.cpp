@@ -7,6 +7,7 @@
 #include <irkit/io.hpp>
 #include <irkit/memoryview.hpp>
 #include <irkit/index/source.hpp>
+#include <irkit/index/types.hpp>
 
 int main(int argc, char** argv)
 {
@@ -15,7 +16,7 @@ int main(int argc, char** argv)
     std::ifstream term_in(irk::index::term_map_path(index_dir).c_str());
     std::ifstream title_in(irk::index::title_map_path(index_dir).c_str());
     irk::inverted_index_mapped_data_source data(index_dir);
-    irk::inverted_index_view index_view(&data, irk::varbyte_codec<long>{},
+    irk::inverted_index_view index_view(&data, irk::varbyte_codec<irk::index::document_t>{},
                                             irk::varbyte_codec<long>{},
                                             irk::varbyte_codec<long>{});
 

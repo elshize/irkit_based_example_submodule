@@ -10,7 +10,7 @@
 #include <irkit/memoryview.hpp>
 #include <irkit/index/source.hpp>
 #include <irkit/index/types.hpp>
-#define private public
+//#define private public
 #include <irkit/index/posting_list.hpp>
 
 using irk::index::document_t;
@@ -87,7 +87,8 @@ auto posting_bitset(const std::vector<post_list_t>& query,
     document_t startpos = block_pos * block_size;
     for(size_t i = 0; i < query.size(); ++i){
         for(size_t sub = 0; sub < 8; ++sub){
-            if(query[i].lookup(document_t(startpos + sub * subsize)).document() 
+            if(query[i].lookup(document_t(startpos + sub * subsize)) != query[i].end()
+                && query[i].lookup(document_t(startpos + sub * subsize)).document() 
                 < startpos + (sub + 1) * subsize)
                 { pb[i].set(sub); } 
         }
@@ -146,12 +147,12 @@ int main(int argc, char** argv){
 	}
 
     std::string line;
-    int k = 100;
+    int k = 1000;
     int num = 1;
     double sumRough = 0;
     double sumAdvanced = 0;
     double sumSub = 0;
-    std::cout << "Query Number\t"
+    std::cout << "Query\t"
               << "Rough Rate\t" 
               << "Advanced Rate\t"
               << "Sub Blocks Rate\n";
@@ -185,7 +186,6 @@ int main(int argc, char** argv){
         // print_posting(result);
         long threshold = (result.end() - 1)->score;
         auto maxTable = block_max(query_postings, index_view.collection_size(), 64);
-        std::cout << "debug\n";
         std::vector<double> live_rate = live_block_count(query_postings, maxTable, threshold, 64);
         std::cout << num << "\t"
                 << live_rate[0] << "\t"
@@ -196,52 +196,11 @@ int main(int argc, char** argv){
         sumAdvanced += live_rate[1];
         sumSub += live_rate[2];
     }
-
-    // getline(query_in, line);
-    // std::stringstream aQuery(line);
-    // std::string term;
-    // std::vector<post_list_t> query_postings;
-    // while(aQuery >> term){
-    //     auto id = index_view.term_id(term);
-    //     if (id.has_value()) {
-    //         query_postings.push_back(
-    //         index_view.scored_postings(id.value()));
-    //     }
-    // }
-    // if(query_postings.size() == 0){
-    //     std::cout << "Can't find any result for query '"
-    //             << line << "'\n";
-    //     return 0;
-    // }
-    // // std::chrono::nanoseconds elapsed(0);
-    // // auto start_interval = std::chrono::steady_clock::now();
-    // auto result = taat(k, query_postings, index_view.collection_size());
-    // // auto end_interval = std::chrono::steady_clock::now();
-    // // elapsed += std::chrono::duration_cast<std::chrono::nanoseconds>
-    // //             (end_interval - start_interval);
-    // // long time = 
-    // //     std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
-    // // std::cout << "Top " << k << " Results in " 
-    // //             << time << " ms\n"
-    // //             << "Document\tScore\n";
-    // // print_posting(result);
-    // long threshold = (result.end() - 1)->score;
-    // std::cout << "debug\n";
-    // auto maxTable = block_max(query_postings, index_view.collection_size(), 64);
-    // std::vector<double> live_rate = live_block_count(query_postings, maxTable, threshold, 64);
-    // std::cout << num << "\t"
-    //         << live_rate[0] << "\t"
-    //         << live_rate[1] << "\t"
-    //         << live_rate[2] << std::endl;
-    // ++num;
-    // sumRough += live_rate[0];
-    // sumAdvanced += live_rate[1];
-    // sumSub += live_rate[2];
     
-    // std::cout << "Average for " << num << "Queries: "
-    //           << "Average Rough Live Rate: " << sumRough / num
-    //           << "\nAverage Advanced Live Rate: " << sumAdvanced / num
-    //           << "\nAverage Sub Blocks Live Rate: " << sumSub / num << std::endl;
+    std::cout << "Average for " << --num << " Queries:\n"
+              << "Average Rough Live Rate: " << sumRough / num
+              << "\nAverage Advanced Live Rate: " << sumAdvanced / num
+              << "\nAverage Sub Blocks Live Rate: " << sumSub / num << std::endl;
 
     // for(auto plist : query_postings){
     //     for(auto posting : plist){

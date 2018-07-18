@@ -4,7 +4,7 @@
 #include <string>
 #include <sstream>
 
-#include <irkit/coding/varbyte.hpp>
+#include <irkit/coding/stream_vbyte.hpp>
 #include <irkit/index.hpp>
 #include <irkit/io.hpp>
 #include <irkit/memoryview.hpp>
@@ -13,9 +13,12 @@
 //#define private public
 #include <irkit/index/posting_list.hpp>
 
+using std::uint32_t;
 using irk::index::document_t;
-using doc_list_t = irk::index::block_document_list_view;
-using payload_list_t = irk::index::block_payload_list_view<long>;
+using doc_list_t = irk::index::block_document_list_view<
+    irk::stream_vbyte_codec<document_t>>;
+using payload_list_t = irk::index::block_payload_list_view<uint32_t,
+    irk::stream_vbyte_codec<uint32_t>>;
 using post_list_t = irk::posting_list_view<doc_list_t, payload_list_t>;
 
 template<class Document, class Score>
@@ -43,7 +46,7 @@ auto taat(int k, const std::vector<post_list_t>& query,
     std::vector<Posting<long, long> > topk;
     long threshold = 0;
     for(size_t i = 0; i < query.size(); ++i){
-        for(auto posting : query[i]){
+        for(const auto& posting : query[i]){
             acc[posting.document()] += posting.payload();
         }
     }
@@ -66,12 +69,12 @@ auto taat(int k, const std::vector<post_list_t>& query,
 auto block_max(const std::vector<post_list_t>& query, 
                 long collection_size, int block_size){
     std::vector<std::vector<long> > maxTable;
-    for(auto pList : query){
+    for(const auto& pList : query){
         std::vector<long> bmax(collection_size / block_size + 1, 0);
         auto p = pList.begin();
         for(size_t i = 0; i < bmax.size(); ++i){
             while(p != pList.end() && p.document() < (i + 1) * block_size){
-                if(p.payload() > bmax[i]) bmax[i] = p.payload();
+                if(p.payload() > bmax[i]) {bmax[i] = p.payload();}
                 p.moveto(p.document() + 1);
             }
         }
@@ -82,19 +85,20 @@ auto block_max(const std::vector<post_list_t>& query,
 
 auto posting_bitset(const std::vector<post_list_t>& query,
                     long block_pos, int block_size){
-    std::vector<std::bitset<8> > pb(query.size());
     int subsize = block_size / 8;
     document_t startpos = block_pos * block_size;
+    std::bitset<8> result(std::string("11111111"));
     for(size_t i = 0; i < query.size(); ++i){
+        auto p = query[i].begin();
+        std::bitset<8> pb(std::string("00000000"));
         for(size_t sub = 0; sub < 8; ++sub){
-            if(query[i].lookup(document_t(startpos + sub * subsize)) != query[i].end()
-                && query[i].lookup(document_t(startpos + sub * subsize)).document() 
+            if(p.moveto(document_t(startpos + sub * subsize)) != query[i].end()
+                && p.moveto(document_t(startpos + sub * subsize)).document() 
                 < startpos + (sub + 1) * subsize)
-                { pb[i].set(sub); } 
+                { pb.set(sub); } 
         }
+        result &= pb;
     }
-    std::bitset<8> result(std::string("11111111"));  
-    for(size_t i = 0; i < pb.size(); ++i) result &= pb[i];
     return result;
 }
 
@@ -108,7 +112,7 @@ auto live_block_count(const std::vector<post_list_t>& query,
     std::bitset<8> empty(std::string("00000000"));
     for(size_t i = 0; i < maxTable[0].size(); ++i){
         long temp_score = 0;
-        for(auto bmax : maxTable){
+        for(const auto& bmax : maxTable){
             temp_score += bmax[i];
         }
         if(temp_score >= threshold){
@@ -134,11 +138,8 @@ int main(int argc, char** argv){
     irk::fs::path index_dir(argv[1]);
     std::ifstream term_in(irk::index::term_map_path(index_dir).c_str());
     std::ifstream title_in(irk::index::title_map_path(index_dir).c_str());
-    irk::inverted_index_mapped_data_source data(index_dir,
-                                                    irk::score::bm25_tag{});
-    irk::inverted_index_view index_view(&data, irk::varbyte_codec<irk::index::document_t>{},
-                                            irk::varbyte_codec<long>{},
-                                            irk::varbyte_codec<long>{});
+    irk::inverted_index_mapped_data_source data(index_dir, "bm25");
+    irk::inverted_index_view index_view(&data);
 
     std::ifstream query_in(argv[2]);
     if (!query_in) {
@@ -168,7 +169,7 @@ int main(int argc, char** argv){
             }
         }
         if(query_postings.size() == 0){
-            std::cout << "Can't find any result for query '"
+            std::cout << num++ << "\tCan't find any result for query '"
                       << line << "'\n";
             continue;
         }
@@ -187,11 +188,18 @@ int main(int argc, char** argv){
         long threshold = (result.end() - 1)->score;
         auto maxTable = block_max(query_postings, index_view.collection_size(), 64);
         std::vector<double> live_rate = live_block_count(query_postings, maxTable, threshold, 64);
-        std::cout << num << "\t"
+        std::cout << num++ << "\t"
                 << live_rate[0] << "\t"
                 << live_rate[1] << "\t"
                 << live_rate[2] << std::endl;
-        ++num;
+        // std::cout << "Query " << num++ << ": " << line 
+        //           << "\nDID\t" << "Score\n"; 
+        // for(auto posting : result){
+        //     std::cout << posting.document << "\t"
+        //               << posting.score << std::endl;
+        // }
+        // std::cout << std::endl;
+
         sumRough += live_rate[0];
         sumAdvanced += live_rate[1];
         sumSub += live_rate[2];
@@ -202,11 +210,5 @@ int main(int argc, char** argv){
               << "\nAverage Advanced Live Rate: " << sumAdvanced / num
               << "\nAverage Sub Blocks Live Rate: " << sumSub / num << std::endl;
 
-    // for(auto plist : query_postings){
-    //     for(auto posting : plist){
-    //         std::cout << posting.document() << "\t"
-    //                   << posting.payload() << std::endl;
-    //     }
-    //     std::cout << std::endl;
-    // }
+
 }

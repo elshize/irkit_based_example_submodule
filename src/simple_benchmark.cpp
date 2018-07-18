@@ -1,7 +1,7 @@
 #include <chrono>
 #include <iostream>
 
-#include <irkit/coding/varbyte.hpp>
+#include <irkit/coding/stream_vbyte.hpp>
 #include <irkit/index.hpp>
 #include <irkit/index/posting_list.hpp>
 #include <irkit/io.hpp>
@@ -16,9 +16,7 @@ int main(int argc, char** argv)
     std::ifstream term_in(irk::index::term_map_path(index_dir).c_str());
     std::ifstream title_in(irk::index::title_map_path(index_dir).c_str());
     irk::inverted_index_mapped_data_source data(index_dir);
-    irk::inverted_index_view index_view(&data, irk::varbyte_codec<irk::index::document_t>{},
-                                            irk::varbyte_codec<long>{},
-                                            irk::varbyte_codec<long>{});
+    irk::inverted_index_view index_view(&data);
 
     std::chrono::nanoseconds elapsed(0);
     long posting_count;

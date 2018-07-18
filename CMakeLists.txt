@@ -13,21 +13,35 @@ set(IRKit_BUILD_BENCHMARKS OFF CACHE INTERNAL "" FORCE)
 
 include(external/external.cmake)
 
+set(DEPENDENCIES irkit rax GSL nlohmann_json ranges type_safe debug_assert streamvbyte)
+
 add_executable(app src/app.cpp)
-target_link_libraries(app irkit)
+target_link_libraries(app ${DEPENDENCIES})
 target_compile_features(app PRIVATE cxx_std_17)
 
-add_executable(simple_benchmark src/simple_benchmark.cpp)
-target_link_libraries(simple_benchmark irkit rax GSL nlohmann_json ranges type_safe debug_assert)
-target_compile_features(simple_benchmark PRIVATE cxx_std_17)
+#[[add_executable(simple_benchmark src/simple_benchmark.cpp)
+target_link_libraries(simple_benchmark ${DEPENDENCIES})
+target_compile_features(simple_benchmark PRIVATE cxx_std_17)]]
 
 add_executable(scoring src/scoring.cpp)
-target_link_libraries(scoring irkit rax GSL nlohmann_json ranges type_safe debug_assert)
+target_link_libraries(scoring ${DEPENDENCIES})
 target_compile_features(scoring PRIVATE cxx_std_17)
 
 add_executable(taat src/taat.cpp)
-target_link_libraries(taat irkit rax GSL nlohmann_json ranges type_safe debug_assert)
+target_link_libraries(taat ${DEPENDENCIES})
 target_compile_features(taat PRIVATE cxx_std_17)
+
+add_executable(eval src/eval.cpp)
+target_link_libraries(eval ${DEPENDENCIES})
+target_compile_features(eval PRIVATE cxx_std_17)
+
+add_executable(mapcheck src/mapcheck.cpp)
+target_link_libraries(mapcheck ${DEPENDENCIES})
+target_compile_features(mapcheck PRIVATE cxx_std_17)
+
+add_executable(daat src/daat.cpp)
+target_link_libraries(daat ${DEPENDENCIES})
+target_compile_features(daat PRIVATE cxx_std_17)
 
 if (Query_UNIT OR Query_INTEGRATION)
     enable_testing()

@@ -36,25 +36,25 @@ void print_posting(const std::vector<Posting<long, long> >& postings){
     }
 }
 
-bool order(const Posting<long, long>& lhs, 
-            const Posting<long, long>& rhs)
+bool order(const Posting<document_t, std::uint32_t>& lhs, 
+            const Posting<document_t, std::uint32_t>& rhs)
 {
     return lhs.score > rhs.score;
 }
 
 auto taat(int k, const std::vector<post_list_t>& query,
             long collection_size){
-    std::vector<long> acc(collection_size, 0);
-    std::vector<Posting<long, long> > topk;
-    long threshold = 0;
-    for(size_t i = 0; i < query.size(); ++i){
-        for(const auto& posting : query[i]){
+    std::vector<std::uint32_t> acc(collection_size, 0);
+    std::vector<Posting<document_t, std::uint32_t> > topk;
+    std::uint32_t threshold = 0;
+    for(const auto& term : query){
+        for(const auto& posting : term){
             acc[posting.document()] += posting.payload();
         }
     }
-    for(size_t i = 0; i < acc.size(); ++i){
+    for(document_t i = 0; i < acc.size(); ++i){
         if(acc[i] > threshold){
-            Posting<long, long> p {long(i), acc[i]};
+            Posting<document_t, std::uint32_t> p {i, acc[i]};
             topk.push_back(p);
             if(topk.size() <= k) std::push_heap(topk.begin(), topk.end(), order);
             else{
@@ -68,30 +68,34 @@ auto taat(int k, const std::vector<post_list_t>& query,
     return topk;
 }
 
-void initialize(std::vector<std::vector<long> >& maxTable,
+void initialize(std::vector<std::vector<uint32_t> >& maxTable,
                 std::vector<std::vector<std::bitset<8> > >& subTable,
                 const std::vector<post_list_t>& query, 
                 long collection_size, int block_size){
     int subsize = block_size / 8;
-    for(const auto& pList : query){
-        std::vector<long> bmax(collection_size / block_size + 1, 0);
-        std::vector<std::bitset<8> > subblocks;
+    maxTable.resize(query.size());
+    subTable.resize(query.size());
+    for(uint32_t term = 0; term < query.size(); term++) {
+        const auto& pList = query[term];
+        auto& bmax = maxTable[term];
+        bmax.resize(collection_size / block_size + 1, 0);
+        auto& subblocks = subTable[term];
+        subblocks.resize(collection_size / block_size + 1);
         auto p = pList.begin();
+        const auto& end = pList.end();
         for(size_t i = 0; i < bmax.size(); ++i){
-            std::bitset<8> pb;
-            while(p != pList.end() && p.document() < (i + 1) * block_size){
-                if(p.payload() > bmax[i]) {bmax[i] = p.payload();}
-                pb.set((p.document() - i * block_size) / subsize);
-                p.moveto(p.document() + 1);
+            while(p != end && p.document() < (i + 1) * block_size){
+                bmax[i] = std::max(p.payload(), bmax[i]);
+                // if(p.payload() > bmax[i]) { bmax[i] = p.payload(); }
+                subblocks[i].set((p.document() - i * block_size) / subsize);
+                //p.moveto(p.document() + 1);
+                ++p;
             }
-            subblocks.push_back(pb);
         }
-        maxTable.push_back(bmax);
-        subTable.push_back(subblocks);
     }
 }
 
-auto live_block_count(const std::vector<std::vector<long> >& maxTable,
+auto live_block_count(const std::vector<std::vector<uint32_t> >& maxTable,
                       const std::vector<std::vector<std::bitset<8> > >& subTable,
                       const std::vector<post_list_t>& query, 
                       long threshold, long& og, int block_size){
@@ -108,10 +112,14 @@ auto live_block_count(const std::vector<std::vector<long> >& maxTable,
         if(temp_score > 0){ ++og; }
         if(temp_score >= threshold){
             ++liveBlock;
-            std::bitset<8> pb(0xff);
-            for(const auto& sub : subTable){
-                pb &= sub[i];
-            }
+            std::bitset<8> pb;
+            for(size_t j = 0; j < 8; ++j){
+                long sub_temp = 0;
+                for(size_t k = 0; k < subTable.size(); ++k){
+                    sub_temp += subTable[k][i][j] * maxTable[k][i];
+                }
+                if(sub_temp >= threshold){ pb.set(j); }
+            }  
             if(pb != empty){
                 ++liveBlockSub;
                 liveSub += pb.count();
@@ -148,55 +156,77 @@ int main(int argc, char** argv){
     double sumAdvanced = 0;
     double sumSub = 0;
     double sumOg = 0;
+    double sumTotal = 0;
+    double sumTaat = 0;
+    double sumInit = 0;
+    double sumCount = 0;
     std::map<int, std::vector<double> > ql;
     std::cout << "Query\t"
               << "Rough Rate\t" 
               << "Advanced Rate\t"
               << "Sub Blocks Rate\t"
-              << "Original Rate\n";
+              << "Original Rate\t"
+              << "Total Time\t"
+              << "Taat Time\t"
+              << "Init Time\t"
+              << "Count Time\n";
     while(getline(query_in, line)){
         std::stringstream aQuery(line);
         std::string term;
         std::vector<post_list_t> query_postings;
         irk::porter2_stemmer stemmer;
-        std::vector<std::vector<long> > maxTable;
+        std::vector<std::vector<uint32_t> > maxTable;
         std::vector<std::vector<std::bitset<8> > > subTable;
         long og = 0;
+        std::vector<std::string> query;
+
         while(aQuery >> term){
             term = stemmer.stem(term);
+            query.push_back(term);
+        }
+        if(query.size() == 0){
+            std::cout << num++ << "\tCan't find any result for query '"
+                      << line << "'\n";
+            continue;
+        }
+
+        auto start_time = std::chrono::steady_clock::now();
+        for(const auto& term : query){
             auto id = index_view.term_id(term);
             if (id.has_value()) {
                 query_postings.push_back(
                 index_view.scored_postings(id.value()));
             }
         }
-        if(query_postings.size() == 0){
-            std::cout << num++ << "\tCan't find any result for query '"
-                      << line << "'\n";
-            continue;
-        }
-        // std::chrono::nanoseconds elapsed(0);
-        // auto start_interval = std::chrono::steady_clock::now();
         auto result = taat(k, query_postings, index_view.collection_size());
-        // auto end_interval = std::chrono::steady_clock::now();
-        // elapsed += std::chrono::duration_cast<std::chrono::nanoseconds>
-        //             (end_interval - start_interval);
-        // long time = 
-        //     std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
-        // std::cout << "Top " << k << " Results in " 
-        //             << time << " ms\n"
-        //             << "Document\tScore\n";
-        // print_posting(result);
+        auto after_taat = std::chrono::steady_clock::now();
+
         long threshold = (result.end() - 1)->score;
         initialize(maxTable, subTable, query_postings, index_view.collection_size(), 64);
+        auto after_init = std::chrono::steady_clock::now();
+
         std::vector<double> live_rate = 
             live_block_count(maxTable, subTable, query_postings, threshold, og, 64);
+        auto end_time = std::chrono::steady_clock::now();
+
+        auto total = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    end_time - start_time);
+        auto taat = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    after_taat - start_time);
+        auto init = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    after_init - after_taat);
+        auto count = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    end_time - after_init);
         double og_rate = (double)og / maxTable[0].size() * 100;
         std::cout << num++ << "\t"
                 << live_rate[0] << "%\t"
                 << live_rate[1] << "%\t"
                 << live_rate[2] << "%\t"
-                << og_rate << "%" << std::endl;
+                << og_rate << "%\t" 
+                << total.count() << "ms\t"
+                << taat.count() << "ms\t"
+                << init.count() << "ms\t"
+                << count.count() << "ms\t" << std::endl;
         if(ql[query_postings.size()].size() == 0){
             ql[query_postings.size()].push_back(1);
             for(const auto& rate : live_rate){
@@ -211,25 +241,26 @@ int main(int argc, char** argv){
             } 
             ql[query_postings.size()][4] += og_rate;
         }
-        // std::cout << "Query " << num++ << ": " << line 
-        //           << "\nDID\t" << "Score\n"; 
-        // for(auto posting : result){
-        //     std::cout << posting.document << "\t"
-        //               << posting.score << std::endl;
-        // }
-        // std::cout << std::endl;
 
         sumRough += live_rate[0];
         sumAdvanced += live_rate[1];
         sumSub += live_rate[2];
         sumOg += og_rate;
+        sumTotal += total.count();
+        sumTaat += taat.count();
+        sumInit += init.count();
+        sumCount += count.count();
     }
     
     std::cout << "Average for " << --num << " Queries:\n"
               << "Average Rough Live Rate: " << sumRough / num << "%"
               << "\nAverage Advanced Live Rate: " << sumAdvanced / num << "%"
               << "\nAverage Sub Blocks Live Rate: " << sumSub / num << "%" 
-              << "\nAverage Original Blocks Rate: " << sumOg / num << "%" << std::endl;
+              << "\nAverage Original Blocks Rate: " << sumOg / num << "%" 
+              << "\nAverage Total Time: " << sumTotal / num << "ms" 
+              << "\nAverage Taat Time: " << sumTaat / num << "ms"
+              << "\nAverage Init Time: " << sumInit / num << "ms"
+              << "\nAverage Count Time: " << sumCount / num << "ms" << std::endl;
 
     std::cout << "Average for Different Querie Length:\n"
               << "Length\t" << "Rough Rate\t" << "Advanced Rate\t" << "Subs Rate\t" << "Original Rate"<< std::endl;

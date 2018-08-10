@@ -86,10 +86,8 @@ void initialize(std::vector<std::vector<uint32_t> >& maxTable,
         for(size_t i = 0; i < bmax.size(); ++i){
             while(p != end && p.document() < (i + 1) * block_size){
                 bmax[i] = std::max(p.payload(), bmax[i]);
-                // if(p.payload() > bmax[i]) { bmax[i] = p.payload(); }
                 subblocks[i].set((p.document() - i * block_size) / subsize);
-                //p.moveto(p.document() + 1);
-                ++p;
+                p.moveto(p.document() + 1);
             }
         }
     }

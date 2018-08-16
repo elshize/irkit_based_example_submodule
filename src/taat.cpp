@@ -10,6 +10,7 @@
 #include <irkit/memoryview.hpp>
 #include <irkit/index/source.hpp>
 #include <irkit/index/types.hpp>
+#include <irkit/parsing/stemmer.hpp>
 //#define private public
 #include <irkit/index/posting_list.hpp>
 
@@ -103,8 +104,8 @@ auto posting_bitset(const std::vector<post_list_t>& query,
 }
 
 auto live_block_count(const std::vector<post_list_t>& query,
-                        std::vector<std::vector<long> > maxTable, 
-                        long threshold, int block_size){
+                      const std::vector<std::vector<long> >& maxTable, 
+                      long threshold, int block_size){
     long liveBlock = 0;
     long liveBlockSub = 0;
     long liveSub = 0;
@@ -124,9 +125,9 @@ auto live_block_count(const std::vector<post_list_t>& query,
             }
         } 
     }
-    double rateBlock = (double)liveBlock / maxTable[0].size();
-    double rateBlockSub = (double)liveBlockSub / maxTable[0].size();
-    double rateSub = (double)liveSub / (maxTable[0].size() * 8);
+    double rateBlock = (double)liveBlock / maxTable[0].size() * 100;
+    double rateBlockSub = (double)liveBlockSub / maxTable[0].size() * 100;
+    double rateSub = (double)liveSub / (maxTable[0].size() * 8) * 100;
     result.push_back(rateBlock);
     result.push_back(rateBlockSub);
     result.push_back(rateSub);
@@ -134,7 +135,7 @@ auto live_block_count(const std::vector<post_list_t>& query,
 }
 
 int main(int argc, char** argv){
-    assert(argc == 3);
+    assert(argc == 4);
     irk::fs::path index_dir(argv[1]);
     std::ifstream term_in(irk::index::term_map_path(index_dir).c_str());
     std::ifstream title_in(irk::index::title_map_path(index_dir).c_str());
@@ -148,7 +149,7 @@ int main(int argc, char** argv){
 	}
 
     std::string line;
-    int k = 1000;
+    int k = std::stoi(argv[3]);
     int num = 1;
     double sumRough = 0;
     double sumAdvanced = 0;
@@ -161,7 +162,9 @@ int main(int argc, char** argv){
         std::stringstream aQuery(line);
         std::string term;
         std::vector<post_list_t> query_postings;
+        irk::porter2_stemmer stemmer;
         while(aQuery >> term){
+            term = stemmer.stem(term);
             auto id = index_view.term_id(term);
             if (id.has_value()) {
                 query_postings.push_back(
@@ -189,9 +192,9 @@ int main(int argc, char** argv){
         auto maxTable = block_max(query_postings, index_view.collection_size(), 64);
         std::vector<double> live_rate = live_block_count(query_postings, maxTable, threshold, 64);
         std::cout << num++ << "\t"
-                << live_rate[0] << "\t"
-                << live_rate[1] << "\t"
-                << live_rate[2] << std::endl;
+                << live_rate[0] << "%\t"
+                << live_rate[1] << "%\t"
+                << live_rate[2] << "%" << std::endl;
         // std::cout << "Query " << num++ << ": " << line 
         //           << "\nDID\t" << "Score\n"; 
         // for(auto posting : result){
@@ -206,9 +209,9 @@ int main(int argc, char** argv){
     }
     
     std::cout << "Average for " << --num << " Queries:\n"
-              << "Average Rough Live Rate: " << sumRough / num
-              << "\nAverage Advanced Live Rate: " << sumAdvanced / num
-              << "\nAverage Sub Blocks Live Rate: " << sumSub / num << std::endl;
+              << "Average Rough Live Rate: " << sumRough / num << "%"
+              << "\nAverage Advanced Live Rate: " << sumAdvanced / num << "%"
+              << "\nAverage Sub Blocks Live Rate: " << sumSub / num << "%" << std::endl;
 
 
 }

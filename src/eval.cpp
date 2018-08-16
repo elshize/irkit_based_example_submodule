@@ -6,6 +6,7 @@
 #include <irkit/index/source.hpp>
 #include <irkit/index/types.hpp>
 #include <irkit/index/posting_list.hpp>
+#include <irkit/parsing/stemmer.hpp>
 
 using std::uint32_t;
 using irk::index::document_t;
@@ -81,6 +82,7 @@ int main(int argc, char** argv){
     std::string line;
     int k = 1000;
     int num = 1;
+    irk::porter2_stemmer stemmer;
     while(getline(query_in, line)){
         std::cout << "Processing Query " << num << "......\n";
         std::stringstream aQuery(line);
@@ -88,6 +90,7 @@ int main(int argc, char** argv){
         std::vector<post_list_t> query_postings;
         int rank = 0;
         while(aQuery >> term){
+            term = stemmer.stem(term);
             auto id = index_view.term_id(term);
             if (id.has_value()) {
                 query_postings.push_back(

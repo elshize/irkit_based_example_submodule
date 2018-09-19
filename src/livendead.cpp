@@ -1,9 +1,4 @@
 #include <iostream>
-#include <chrono>
-#include <bitset>
-#include <string>
-#include <sstream>
-#include <map>
 
 #include <irkit/coding/stream_vbyte.hpp>
 #include <irkit/index.hpp>
@@ -87,6 +82,7 @@ void initialize(std::vector<std::vector<uint32_t> >& maxTable,
             while(p != end && p.document() < (i + 1) * block_size){
                 bmax[i] = std::max(p.payload(), bmax[i]);
                 subblocks[i].set((p.document() - i * block_size) / subsize);
+                // ++p;
                 p.moveto(p.document() + 1);
             }
         }
@@ -95,8 +91,10 @@ void initialize(std::vector<std::vector<uint32_t> >& maxTable,
 
 auto live_block_count(const std::vector<std::vector<uint32_t> >& maxTable,
                       const std::vector<std::vector<std::bitset<8> > >& subTable,
-                      const std::vector<post_list_t>& query, 
-                      long threshold, long& og, int block_size){
+                      long threshold, long& og, int block_size,
+                      std::vector<uint8_t>& roughLive,
+                      std::vector<uint8_t>& advLive,
+                      std::vector<uint8_t>& subLive){
     long liveBlock = 0;
     long liveBlockSub = 0;
     long liveSub = 0;
@@ -110,16 +108,21 @@ auto live_block_count(const std::vector<std::vector<uint32_t> >& maxTable,
         if(temp_score > 0){ ++og; }
         if(temp_score >= threshold){
             ++liveBlock;
+            // roughLive[i] = 1;
             std::bitset<8> pb;
             for(size_t j = 0; j < 8; ++j){
                 long sub_temp = 0;
                 for(size_t k = 0; k < subTable.size(); ++k){
                     sub_temp += subTable[k][i][j] * maxTable[k][i];
                 }
-                if(sub_temp >= threshold){ pb.set(j); }
+                if(sub_temp >= threshold){ 
+                    pb.set(j); 
+                    // subLive[i * block_size + j] = 1;
+                }
             }  
             if(pb != empty){
                 ++liveBlockSub;
+                // advLive[i] = 1;
                 liveSub += pb.count();
             }
         } 
@@ -132,6 +135,7 @@ auto live_block_count(const std::vector<std::vector<uint32_t> >& maxTable,
     result.push_back(rateSub);
     return result;
 }
+
 
 int main(int argc, char** argv){
     assert(argc == 4);
@@ -150,6 +154,7 @@ int main(int argc, char** argv){
     std::string line;
     int k = std::stoi(argv[3]);
     int num = 1;
+    int colsize = index_view.collection_size();
     double sumRough = 0;
     double sumAdvanced = 0;
     double sumSub = 0;
@@ -159,15 +164,17 @@ int main(int argc, char** argv){
     double sumInit = 0;
     double sumCount = 0;
     std::map<int, std::vector<double> > ql;
-    std::cout << "Query\t"
-              << "Rough Rate\t" 
-              << "Advanced Rate\t"
-              << "Sub Blocks Rate\t"
-              << "Original Rate\t"
-              << "Total Time\t"
-              << "Taat Time\t"
-              << "Init Time\t"
-              << "Count Time\n";
+    std::cout << std::setw(8) << std::left << "Query"
+              << std::setw(13) << std::left << "Rough Rate" 
+              << std::setw(16) << std::left << "Advanced Rate"
+              << std::setw(16) << std::left << "SubBlocks Rate"
+              << std::setw(16) << std::left << "Original Rate"
+              << std::setw(12) << std::left << "Total Time"
+              << std::setw(12) << std::left << "Taat Time"
+              << std::setw(12) << std::left << "Init Time"
+              << std::setw(12) << std::left << "Count Time" 
+              << std::endl;
+
     while(getline(query_in, line)){
         std::stringstream aQuery(line);
         std::string term;
@@ -177,18 +184,15 @@ int main(int argc, char** argv){
         std::vector<std::vector<std::bitset<8> > > subTable;
         long og = 0;
         std::vector<std::string> query;
+        std::vector<uint8_t> roughLive(colsize / 64 + 1);
+        std::vector<uint8_t> advLive(colsize / 64 + 1);
+        std::vector<uint8_t> subLive(colsize / 8 + 1);
 
         while(aQuery >> term){
             term = stemmer.stem(term);
             query.push_back(term);
         }
-        if(query.size() == 0){
-            std::cout << num++ << "\tCan't find any result for query '"
-                      << line << "'\n";
-            continue;
-        }
-
-        auto start_time = std::chrono::steady_clock::now();
+    
         for(const auto& term : query){
             auto id = index_view.term_id(term);
             if (id.has_value()) {
@@ -196,15 +200,22 @@ int main(int argc, char** argv){
                 index_view.scored_postings(id.value()));
             }
         }
-        auto result = taat(k, query_postings, index_view.collection_size());
+        if(query_postings.size() == 0){
+            std::cout << num++ << "\tCan't find any result for query '"
+                      << line << "'\n";
+            continue;
+        }
+
+        auto start_time = std::chrono::steady_clock::now();
+        auto result = taat(k, query_postings, colsize);
         auto after_taat = std::chrono::steady_clock::now();
 
         long threshold = (result.end() - 1)->score;
-        initialize(maxTable, subTable, query_postings, index_view.collection_size(), 64);
+        initialize(maxTable, subTable, query_postings, colsize, 64);
         auto after_init = std::chrono::steady_clock::now();
 
         std::vector<double> live_rate = 
-            live_block_count(maxTable, subTable, query_postings, threshold, og, 64);
+            live_block_count(maxTable, subTable, threshold, og, 64, roughLive, advLive, subLive);
         auto end_time = std::chrono::steady_clock::now();
 
         auto total = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -216,15 +227,15 @@ int main(int argc, char** argv){
         auto count = std::chrono::duration_cast<std::chrono::milliseconds>(
                     end_time - after_init);
         double og_rate = (double)og / maxTable[0].size() * 100;
-        std::cout << num++ << "\t"
-                << live_rate[0] << "%\t"
-                << live_rate[1] << "%\t"
-                << live_rate[2] << "%\t"
-                << og_rate << "%\t" 
-                << total.count() << "ms\t"
-                << taat.count() << "ms\t"
-                << init.count() << "ms\t"
-                << count.count() << "ms\t" << std::endl;
+        std::cout << std::setw(8) << std::left << num++ 
+                << std::setw(10) << std::right << live_rate[0] << "%"
+                << std::setw(14) << std::right << live_rate[1] << "%"
+                << std::setw(16) << std::right << live_rate[2] << "%"
+                << std::setw(14) << std::right << og_rate << "%" 
+                << std::setw(11) << std::right << total.count() << "ms"
+                << std::setw(9) << std::right << taat.count() << "ms"
+                << std::setw(10) << std::right << init.count() << "ms"
+                << std::setw(11) << std::right << count.count() << "ms" << std::endl;
         if(ql[query_postings.size()].size() == 0){
             ql[query_postings.size()].push_back(1);
             for(const auto& rate : live_rate){
@@ -264,7 +275,10 @@ int main(int argc, char** argv){
               << "Length\t" << "Rough Rate\t" << "Advanced Rate\t" << "Subs Rate\t" << "Original Rate"<< std::endl;
     for(const auto& len : ql){
         std::cout << len.first << "\t";
-        for(size_t i = 1; i < len.second.size(); ++i){ std::cout << len.second[i] / len.second[0] << "%\t"; }
+        for(size_t i = 1; i < len.second.size(); ++i){ 
+            std::cout << std::setw(8) << std::right  
+                      << len.second[i] / len.second[0] << "%\t"; 
+            }
         std::cout << std::endl;
     }
 
